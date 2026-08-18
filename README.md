@@ -5,6 +5,9 @@ action — text or image — is logged as a row in a local SQLite database as it
 the bar icon to browse the history, re-copy any past entry back to the clipboard, or delete
 entries you don't need.
 
+![Bar icon](docs/bar-icon.png)
+![Popup](docs/popup.png)
+
 ## Install
 
 **Option 1 — `omarchy plugin add` (recommended):**
