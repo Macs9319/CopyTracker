@@ -33,8 +33,8 @@ Panel {
     listProc.running = true
   }
 
-  function copyEntry(id) {
-    Quickshell.execDetached(["bash", root.scriptPath, "copy", String(id)])
+  function pasteEntry(id) {
+    Quickshell.execDetached(["bash", root.scriptPath, "paste", String(id)])
   }
 
   function deleteEntry(id) {
@@ -71,7 +71,7 @@ Panel {
 
   function activateSelected() {
     if (root.selectedIndex < 0 || root.selectedIndex >= root.entries.length) return
-    root.copyEntry(root.entries[root.selectedIndex].id)
+    root.pasteEntry(root.entries[root.selectedIndex].id)
     root.close()
   }
 
@@ -350,7 +350,7 @@ Panel {
                   hoverEnabled: true
                   acceptedButtons: Qt.LeftButton
                   cursorShape: Qt.PointingHandCursor
-                  onClicked: { root.copyEntry(rowItem.modelData.id); root.close() }
+                  onClicked: { root.pasteEntry(rowItem.modelData.id); root.close() }
                 }
 
                 Column {
@@ -387,12 +387,12 @@ Panel {
 
                   Button {
                     text: "↺"
-                    tooltipText: "Copy back to clipboard"
+                    tooltipText: "Paste"
                     foreground: root.bar.foreground
                     fontFamily: root.bar.fontFamily
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(4)
-                    onClicked: { root.copyEntry(rowItem.modelData.id); root.close() }
+                    onClicked: { root.pasteEntry(rowItem.modelData.id); root.close() }
                   }
 
                   Button {

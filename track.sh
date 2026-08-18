@@ -57,6 +57,23 @@ require_int() {
   [[ "$1" =~ ^[0-9]+$ ]] || { echo "expected an integer, got: $1" >&2; exit 1; }
 }
 
+# Puts entry $1 back on the system clipboard. Returns non-zero (without
+# touching the clipboard) if the id doesn't exist.
+copy_entry() {
+  local id="$1" row type content mime
+  row=$(sqlite3 -json "$DB" "SELECT type, content, mime FROM clips WHERE id=$id LIMIT 1;")
+  type=$(jq -r '.[0].type // empty' <<<"$row")
+  content=$(jq -r '.[0].content // empty' <<<"$row")
+  mime=$(jq -r '.[0].mime // empty' <<<"$row")
+  [[ -z "$type" ]] && return 1
+
+  if [[ "$type" == "image" ]]; then
+    wl-copy --type "$mime" <"$content"
+  else
+    printf '%s' "$content" | wl-copy
+  fi
+}
+
 init_db
 
 cmd="${1:-}"
@@ -138,21 +155,24 @@ clear)
 copy)
   id="${1:?id required}"
   require_int "$id"
-  row=$(sqlite3 -json "$DB" "SELECT type, content, mime FROM clips WHERE id=$id LIMIT 1;")
-  type=$(jq -r '.[0].type // empty' <<<"$row")
-  content=$(jq -r '.[0].content // empty' <<<"$row")
-  mime=$(jq -r '.[0].mime // empty' <<<"$row")
-  [[ -z "$type" ]] && exit 0
+  copy_entry "$id" || exit 0
+  ;;
 
-  if [[ "$type" == "image" ]]; then
-    wl-copy --type "$mime" <"$content"
-  else
-    printf '%s' "$content" | wl-copy
-  fi
+paste)
+  id="${1:?id required}"
+  require_int "$id"
+  copy_entry "$id" || exit 0
+  # Give the popup a moment to close and hand focus back to whatever was
+  # behind it, then paste through the clipboard rather than typing it out —
+  # the only option that works for both text and images. Same convention
+  # (delay + shift-insert via wtype) as the built-in clipboard history
+  # plugin's omarchy-clipboard-paste-text helper.
+  sleep 0.15
+  wtype -M shift -k Insert -m shift 2>/dev/null || true
   ;;
 
 *)
-  echo "usage: track.sh {insert-text|insert-image <mime>|list [limit] [query]|count|delete <id>|clear|copy <id>}" >&2
+  echo "usage: track.sh {insert-text|insert-image <mime>|list [limit] [query]|count|delete <id>|clear|copy <id>|paste <id>}" >&2
   exit 1
   ;;
 esac

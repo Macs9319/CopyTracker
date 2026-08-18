@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "copytracker",
   "name": "Copy Tracker",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "ronnie",
   "description": "Logs every copy action to a SQLite database and lets you browse/re-copy past entries",
   "kinds": [

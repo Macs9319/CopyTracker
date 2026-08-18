@@ -2,6 +2,13 @@
 
 All notable changes to Copy Tracker are documented here.
 
+## [1.2.0]
+
+### Changed
+- Selecting an entry (Enter/Space, the ↺ button, or clicking a row) now
+  pastes it directly into whatever regains focus after the panel closes,
+  instead of only copying it to the clipboard
+
 ## [1.1.0]
 
 ### Added

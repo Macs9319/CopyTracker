@@ -2,8 +2,8 @@
 
 A clipboard history plugin for the [Omarchy](https://omarchy.org/) shell bar. Every copy
 action — text or image — is logged as a row in a local SQLite database as it happens. Click
-the bar icon to browse the history, search it, re-copy any past entry back to the clipboard,
-or delete entries you don't need.
+the bar icon to browse the history, search it, and pick an entry to paste it straight into
+whatever you were typing in, or delete entries you don't need.
 
 ![Bar icon](docs/bar-icon.png)
 ![Popup](docs/popup.png)
@@ -41,8 +41,8 @@ Click the bar icon to open the history panel:
 |---|---|
 | Type in the search box | Filter entries whose content contains the text |
 | ↓ / ↑ (or j / k) | Move the selection through the list, auto-scrolling to keep it in view |
-| Enter or Space | Copy the selected entry back to the clipboard and close the panel |
-| Click an entry's ↺ | Copy that entry back to the clipboard and close the panel |
+| Enter or Space | Paste the selected entry into whatever's behind the panel, and close it |
+| Click an entry's ↺ | Same — copy that entry to the clipboard, paste it, and close the panel |
 | Click an entry's ✕ | Delete that entry |
 | Esc | Close the panel |
 | Clear All | Delete the entire history (with a confirmation) |
@@ -50,8 +50,11 @@ Click the bar icon to open the history panel:
 Arrow/j-k navigation is only active while the search box isn't focused, so those letters can
 still be typed into a search query normally.
 
-Text and images are both tracked. Copies flagged as sensitive (e.g. from a password manager)
-are skipped, and a copy that repeats the immediately-preceding entry isn't logged twice.
+Selecting an entry closes the panel, puts it on the clipboard, and sends a Shift+Insert paste
+into whatever window regains focus — the same mechanism (and ~150ms delay to let focus settle)
+the built-in clipboard history plugin uses. Text and images are both tracked. Copies flagged as
+sensitive (e.g. from a password manager) are skipped, and a copy that repeats the
+immediately-preceding entry isn't logged twice.
 
 ### Bind it to a key
 
@@ -67,8 +70,8 @@ chosen combo is already bound to something else.)
 ## Requirements
 
 - [Omarchy](https://omarchy.org/) (Quickshell-based shell)
-- `sqlite3`, `wl-clipboard` (`wl-copy`/`wl-paste`), and `jq` on `PATH` (all ship by default on
-  Omarchy)
+- `sqlite3`, `wl-clipboard` (`wl-copy`/`wl-paste`), `jq`, and `wtype` on `PATH` (all ship by
+  default on Omarchy)
 
 ## Storage
 
@@ -93,8 +96,8 @@ if you also want to wipe the stored history.
 base component. Two background `wl-paste --watch` processes (one for text, one for images)
 call `track.sh`, which owns the SQLite schema and every read/write query. The panel shells out
 to `track.sh list` (optionally with a search query, debounced as you type) to populate the
-popup and to `track.sh copy`/`delete`/`clear` for actions — no QML-side clipboard or database
-logic beyond that. Keyboard navigation runs through the shell's `PanelKeyCatcher`, which tracks
+popup and to `track.sh copy`/`paste`/`delete`/`clear` for actions — no QML-side clipboard or
+database logic beyond that. Keyboard navigation runs through the shell's `PanelKeyCatcher`, which tracks
 a `selectedIndex` and keeps it in view by walking the selected delegate's position via
 `Repeater.itemAt()` (a plain `Column` + `Repeater` list has no `ListView.positionViewAtIndex`).
 
