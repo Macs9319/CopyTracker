@@ -38,6 +38,17 @@ sql_escape() {
   printf '%s' "${1//\'/\'\'}"
 }
 
+# Escapes a string for safe use inside a LIKE '%...%' pattern: backslash
+# first (it's about to become the escape char), then the LIKE wildcards,
+# then quotes last via sql_escape.
+like_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//%/\\%}"
+  s="${s//_/\\_}"
+  sql_escape "$s"
+}
+
 trim_table() {
   sqlite3 "$DB" "DELETE FROM clips WHERE id NOT IN (SELECT id FROM clips ORDER BY id DESC LIMIT $MAX_ENTRIES);"
 }
@@ -101,7 +112,13 @@ insert-image)
 list)
   limit="${1:-300}"
   require_int "$limit"
-  sqlite3 -json "$DB" "SELECT id, type, content, mime, created_at FROM clips ORDER BY id DESC LIMIT $limit;"
+  query="${2:-}"
+  if [[ -n "$query" ]]; then
+    escaped=$(like_escape "$query")
+    sqlite3 -json "$DB" "SELECT id, type, content, mime, created_at FROM clips WHERE content LIKE '%$escaped%' ESCAPE '\' ORDER BY id DESC LIMIT $limit;"
+  else
+    sqlite3 -json "$DB" "SELECT id, type, content, mime, created_at FROM clips ORDER BY id DESC LIMIT $limit;"
+  fi
   ;;
 
 count)
@@ -135,7 +152,7 @@ copy)
   ;;
 
 *)
-  echo "usage: track.sh {insert-text|insert-image <mime>|list [limit]|count|delete <id>|clear|copy <id>}" >&2
+  echo "usage: track.sh {insert-text|insert-image <mime>|list [limit] [query]|count|delete <id>|clear|copy <id>}" >&2
   exit 1
   ;;
 esac

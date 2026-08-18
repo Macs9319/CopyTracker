@@ -39,6 +39,7 @@ Click the bar icon to open the history panel:
 
 | Action | Effect |
 |---|---|
+| Type in the search box | Filter entries whose content contains the text |
 | Click an entry's ↺ | Copy that entry back to the clipboard and close the panel |
 | Click an entry's ✕ | Delete that entry |
 | Clear All | Delete the entire history (with a confirmation) |
@@ -74,7 +75,8 @@ if you also want to wipe the stored history.
 `Panel.qml` is a single Omarchy shell plugin (`bar-widget` kind) built on the shell's `Panel`
 base component. Two background `wl-paste --watch` processes (one for text, one for images)
 call `track.sh`, which owns the SQLite schema and every read/write query. The panel shells out
-to `track.sh list` to populate the popup and to `track.sh copy`/`delete`/`clear` for actions —
+to `track.sh list` (optionally with a search query, debounced as you type) to populate the
+popup and to `track.sh copy`/`delete`/`clear` for actions —
 no QML-side clipboard or database logic beyond that.
 
 ## License

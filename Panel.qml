@@ -17,6 +17,7 @@ Panel {
   property string scriptPath: Quickshell.env("HOME") + "/.config/omarchy/plugins/copytracker/track.sh"
   property var entries: []
   property bool clearConfirmOpen: false
+  property string searchQuery: ""
 
   readonly property string icon: "" // nf-cod-copy
 
@@ -25,7 +26,9 @@ Panel {
 
   function refresh() {
     listProc.running = false
-    listProc.command = ["bash", root.scriptPath, "list", "300"]
+    var cmd = ["bash", root.scriptPath, "list", "300"]
+    if (root.searchQuery.length > 0) cmd.push(root.searchQuery)
+    listProc.command = cmd
     listProc.running = true
   }
 
@@ -57,7 +60,14 @@ Panel {
     return String(entry.content || "").replace(/\s+/g, " ").trim()
   }
 
-  onOpenedChanged: if (root.opened) root.refresh()
+  onOpenedChanged: {
+    if (root.opened) {
+      root.refresh()
+    } else {
+      root.searchQuery = ""
+      searchInput.text = ""
+    }
+  }
 
   Component.onCompleted: {
     initProc.running = true
@@ -216,11 +226,58 @@ Panel {
             foreground: root.bar.foreground
           }
 
+          // ---------- Search ----------
+          Item {
+            width: parent.width
+            implicitHeight: Style.space(32)
+
+            Rectangle {
+              anchors.fill: parent
+              radius: Style.cornerRadius
+              color: Style.hoverFillFor(root.bar.foreground, Color.accent)
+              border.width: searchInput.activeFocus ? 1 : 0
+              border.color: Color.accent
+            }
+
+            TextInput {
+              id: searchInput
+              anchors.fill: parent
+              anchors.margins: Style.space(8)
+              verticalAlignment: TextInput.AlignVCenter
+              clip: true
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+              onTextChanged: {
+                root.searchQuery = text
+                searchDebounce.restart()
+              }
+
+              Text {
+                visible: searchInput.text.length === 0
+                text: "Search history..."
+                opacity: 0.5
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+
+            Timer {
+              id: searchDebounce
+              interval: 150
+              repeat: false
+              onTriggered: root.refresh()
+            }
+          }
+
           // ---------- Empty state ----------
           Text {
             visible: root.entries.length === 0
             width: parent.width
-            text: "Nothing copied yet — copy something to see it here"
+            text: root.searchQuery.length > 0 ? "No matches for \"" + root.searchQuery + "\"" : "Nothing copied yet — copy something to see it here"
             opacity: 0.6
             color: root.bar.foreground
             font.family: root.bar.fontFamily
