@@ -40,12 +40,29 @@ Click the bar icon to open the history panel:
 | Action | Effect |
 |---|---|
 | Type in the search box | Filter entries whose content contains the text |
+| ↓ / ↑ (or j / k) | Move the selection through the list, auto-scrolling to keep it in view |
+| Enter or Space | Copy the selected entry back to the clipboard and close the panel |
 | Click an entry's ↺ | Copy that entry back to the clipboard and close the panel |
 | Click an entry's ✕ | Delete that entry |
+| Esc | Close the panel |
 | Clear All | Delete the entire history (with a confirmation) |
+
+Arrow/j-k navigation is only active while the search box isn't focused, so those letters can
+still be typed into a search query normally.
 
 Text and images are both tracked. Copies flagged as sensitive (e.g. from a password manager)
 are skipped, and a copy that repeats the immediately-preceding entry isn't logged twice.
+
+### Bind it to a key
+
+The plugin doesn't ship a keybind — wire one up yourself in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SHIFT + GRAVE", "Copy tracker", "omarchy-shell shell toggle copytracker")
+```
+
+(`GRAVE` is the backtick/tilde key; check `omarchy menu keybindings --print` first in case your
+chosen combo is already bound to something else.)
 
 ## Requirements
 
@@ -77,7 +94,9 @@ base component. Two background `wl-paste --watch` processes (one for text, one f
 call `track.sh`, which owns the SQLite schema and every read/write query. The panel shells out
 to `track.sh list` (optionally with a search query, debounced as you type) to populate the
 popup and to `track.sh copy`/`delete`/`clear` for actions — no QML-side clipboard or database
-logic beyond that.
+logic beyond that. Keyboard navigation runs through the shell's `PanelKeyCatcher`, which tracks
+a `selectedIndex` and keeps it in view by walking the selected delegate's position via
+`Repeater.itemAt()` (a plain `Column` + `Repeater` list has no `ListView.positionViewAtIndex`).
 
 ## License
 
