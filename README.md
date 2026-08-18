@@ -2,8 +2,8 @@
 
 A clipboard history plugin for the [Omarchy](https://omarchy.org/) shell bar. Every copy
 action — text or image — is logged as a row in a local SQLite database as it happens. Click
-the bar icon to browse the history, re-copy any past entry back to the clipboard, or delete
-entries you don't need.
+the bar icon to browse the history, search it, re-copy any past entry back to the clipboard,
+or delete entries you don't need.
 
 ![Bar icon](docs/bar-icon.png)
 ![Popup](docs/popup.png)
@@ -76,8 +76,8 @@ if you also want to wipe the stored history.
 base component. Two background `wl-paste --watch` processes (one for text, one for images)
 call `track.sh`, which owns the SQLite schema and every read/write query. The panel shells out
 to `track.sh list` (optionally with a search query, debounced as you type) to populate the
-popup and to `track.sh copy`/`delete`/`clear` for actions —
-no QML-side clipboard or database logic beyond that.
+popup and to `track.sh copy`/`delete`/`clear` for actions — no QML-side clipboard or database
+logic beyond that.
 
 ## License
 
