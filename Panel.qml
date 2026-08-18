@@ -18,6 +18,7 @@ Panel {
   property var entries: []
   property bool clearConfirmOpen: false
   property string searchQuery: ""
+  property int selectedIndex: -1
 
   readonly property string icon: "" // nf-cod-copy
 
@@ -60,12 +61,43 @@ Panel {
     return String(entry.content || "").replace(/\s+/g, " ").trim()
   }
 
+  function moveSelection(dy) {
+    var count = root.entries.length
+    if (count === 0) { root.selectedIndex = -1; return }
+    if (root.selectedIndex < 0) { root.selectedIndex = dy > 0 ? 0 : count - 1 }
+    else { root.selectedIndex = Math.max(0, Math.min(count - 1, root.selectedIndex + dy)) }
+    root.ensureSelectedVisible()
+  }
+
+  function activateSelected() {
+    if (root.selectedIndex < 0 || root.selectedIndex >= root.entries.length) return
+    root.copyEntry(root.entries[root.selectedIndex].id)
+    root.close()
+  }
+
+  // Column + Repeater isn't a ListView, so there's no positionViewAtIndex —
+  // walk the selected delegate's position in the (unscrolled) column and
+  // nudge contentY just enough to bring it back into the viewport.
+  function ensureSelectedVisible() {
+    if (root.selectedIndex < 0) return
+    var item = entriesRepeater.itemAt(root.selectedIndex)
+    if (!item) return
+    var top = item.mapToItem(column, 0, 0).y
+    var bottom = top + item.height
+    if (top < listScroll.contentY) {
+      listScroll.contentY = top
+    } else if (bottom > listScroll.contentY + listScroll.height) {
+      listScroll.contentY = bottom - listScroll.height
+    }
+  }
+
   onOpenedChanged: {
     if (root.opened) {
       root.refresh()
     } else {
       root.searchQuery = ""
       searchInput.text = ""
+      root.selectedIndex = -1
     }
   }
 
@@ -87,6 +119,7 @@ Panel {
         } catch (e) {
           root.entries = []
         }
+        root.selectedIndex = -1
       }
     }
   }
@@ -156,9 +189,11 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.clearConfirmOpen
+      blocked: root.clearConfirmOpen || searchInput.activeFocus
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+      onMoveRequested: function(dx, dy) { if (dy !== 0) root.moveSelection(dy) }
+      onActivateRequested: root.activateSelected()
 
       ConfirmDialog {
         anchors.fill: parent
@@ -292,6 +327,7 @@ Panel {
             visible: root.entries.length > 0
 
             Repeater {
+              id: entriesRepeater
               model: root.entries
 
               Item {
@@ -305,14 +341,16 @@ Panel {
                 Rectangle {
                   anchors.fill: parent
                   radius: Style.cornerRadius
-                  color: rowHover.containsMouse ? Style.hoverFillFor(root.bar.foreground, Color.accent) : "transparent"
+                  color: (rowHover.containsMouse || rowItem.index === root.selectedIndex) ? Style.hoverFillFor(root.bar.foreground, Color.accent) : "transparent"
                 }
 
                 MouseArea {
                   id: rowHover
                   anchors.fill: parent
                   hoverEnabled: true
-                  acceptedButtons: Qt.NoButton
+                  acceptedButtons: Qt.LeftButton
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: { root.copyEntry(rowItem.modelData.id); root.close() }
                 }
 
                 Column {
