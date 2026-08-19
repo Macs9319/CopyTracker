@@ -331,6 +331,7 @@ Panel {
             visible: root.entries.length === 0
             width: parent.width
             text: root.searchQuery.length > 0 ? "No matches for \"" + root.searchQuery + "\"" : "Nothing copied yet — copy something to see it here"
+            textFormat: Text.PlainText
             opacity: 0.6
             color: root.bar.foreground
             font.family: root.bar.fontFamily
