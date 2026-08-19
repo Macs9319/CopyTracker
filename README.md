@@ -42,7 +42,7 @@ Click the bar icon to open the history panel:
 | Type in the search box | Filter entries whose content contains the text |
 | ↓ / ↑ (or j / k) | Move the selection through the list, auto-scrolling to keep it in view |
 | Enter or Space | Paste the selected entry into whatever's behind the panel, and close it |
-| Click an entry's ↺ | Same — copy that entry to the clipboard, paste it, and close the panel |
+| Click anywhere on an entry (or its ↺) | Same — copy that entry to the clipboard, paste it, and close the panel |
 | Click an entry's ✕ | Delete that entry |
 | Esc | Close the panel |
 | Clear All | Delete the entire history (with a confirmation) |
@@ -78,8 +78,12 @@ chosen combo is already bound to something else.)
 - Database: `~/.local/state/omarchy/copytracker.db` (table `clips`: `id`, `type`, `content`,
   `mime`, `created_at`)
 - Images: saved by content hash under `~/.local/state/omarchy/copytracker-images/`; the
-  database row stores the file path
+  database row stores the file path. Copying the same image twice reuses the existing file
+  instead of duplicating it
 - History is capped at the most recent 1000 entries
+- Deleting an entry (individually, via Clear All, or by aging out past the 1000-entry cap)
+  also removes its backing image file — unless another surviving entry still points at the
+  same file, in which case the file is kept until the last reference to it is gone
 
 ## Uninstall
 

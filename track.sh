@@ -50,7 +50,21 @@ like_escape() {
 }
 
 trim_table() {
+  mapfile -t stale_images < <(sqlite3 "$DB" "SELECT DISTINCT content FROM clips WHERE type='image' AND id NOT IN (SELECT id FROM clips ORDER BY id DESC LIMIT $MAX_ENTRIES);")
   sqlite3 "$DB" "DELETE FROM clips WHERE id NOT IN (SELECT id FROM clips ORDER BY id DESC LIMIT $MAX_ENTRIES);"
+  prune_images "${stale_images[@]}"
+}
+
+# Removes each given image file, but only once no remaining row still
+# references it — the same file can back multiple rows, since insert-image
+# dedups by content hash instead of writing a fresh copy every time.
+prune_images() {
+  local f still_used
+  for f in "$@"; do
+    [[ -z "$f" ]] && continue
+    still_used=$(sqlite3 "$DB" "SELECT COUNT(*) FROM clips WHERE type='image' AND content='$(sql_escape "$f")';")
+    [[ "$still_used" -eq 0 ]] && rm -f "$f"
+  done
 }
 
 require_int() {
@@ -145,11 +159,17 @@ count)
 delete)
   id="${1:?id required}"
   require_int "$id"
+  row=$(sqlite3 -json "$DB" "SELECT type, content FROM clips WHERE id=$id LIMIT 1;")
   sqlite3 "$DB" "DELETE FROM clips WHERE id=$id;"
+  if [[ "$(jq -r '.[0].type // empty' <<<"$row")" == "image" ]]; then
+    prune_images "$(jq -r '.[0].content // empty' <<<"$row")"
+  fi
   ;;
 
 clear)
+  mapfile -t all_images < <(sqlite3 "$DB" "SELECT DISTINCT content FROM clips WHERE type='image';")
   sqlite3 "$DB" "DELETE FROM clips;"
+  prune_images "${all_images[@]}"
   ;;
 
 copy)
