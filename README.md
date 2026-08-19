@@ -2,8 +2,8 @@
 
 A clipboard history plugin for the [Omarchy](https://omarchy.org/) shell bar. Every copy
 action — text or image — is logged as a row in a local SQLite database as it happens. Click
-the bar icon to browse the history, search it, and pick an entry to paste it straight into
-whatever you were typing in, or delete entries you don't need.
+the bar icon to browse the history, search it, pin the entries you don't want to lose, and pick
+an entry to paste it straight into whatever you were typing in, or delete entries you don't need.
 
 ![Bar icon](docs/bar-icon.png)
 ![Popup](docs/popup.png)
@@ -43,18 +43,23 @@ Click the bar icon to open the history panel:
 | ↓ / ↑ (or j / k) | Move the selection through the list, auto-scrolling to keep it in view |
 | Enter or Space | Paste the selected entry into whatever's behind the panel, and close it |
 | Click anywhere on an entry (or its ↺) | Same — copy that entry to the clipboard, paste it, and close the panel |
+| Click an entry's ☆/★ (or press p) | Pin/unpin that entry |
 | Click an entry's ✕ | Delete that entry |
 | Esc | Close the panel |
-| Clear All | Delete the entire history (with a confirmation) |
+| Clear All | Delete the unpinned history (with a confirmation) |
 
 Arrow/j-k navigation is only active while the search box isn't focused, so those letters can
 still be typed into a search query normally.
 
 Selecting an entry closes the panel, puts it on the clipboard, and sends a Shift+Insert paste
 into whatever window regains focus — the same mechanism (and ~150ms delay to let focus settle)
-the built-in clipboard history plugin uses. Text and images are both tracked. Copies flagged as
-sensitive (e.g. from a password manager) are skipped, and a copy that repeats the
-immediately-preceding entry isn't logged twice.
+the built-in clipboard history plugin uses. Text and images are both tracked, images show a
+thumbnail in the list. Copies flagged as sensitive (e.g. from a password manager) are skipped,
+and copying something already in the history bumps it back to the top instead of adding a
+duplicate row.
+
+Pinned entries (★) stay at the top of the list, survive "Clear All", and are exempt from the
+1000-entry cap — they're only removed if you delete them individually.
 
 ### Bind it to a key
 
@@ -76,7 +81,7 @@ chosen combo is already bound to something else.)
 ## Storage
 
 - Database: `~/.local/state/omarchy/copytracker.db` (table `clips`: `id`, `type`, `content`,
-  `mime`, `created_at`)
+  `mime`, `pinned`, `created_at`)
 - Images: saved by content hash under `~/.local/state/omarchy/copytracker-images/`; the
   database row stores the file path. Copying the same image twice reuses the existing file
   instead of duplicating it
@@ -100,8 +105,8 @@ if you also want to wipe the stored history.
 base component. Two background `wl-paste --watch` processes (one for text, one for images)
 call `track.sh`, which owns the SQLite schema and every read/write query. The panel shells out
 to `track.sh list` (optionally with a search query, debounced as you type) to populate the
-popup and to `track.sh copy`/`paste`/`delete`/`clear` for actions — no QML-side clipboard or
-database logic beyond that. Keyboard navigation runs through the shell's `PanelKeyCatcher`, which tracks
+popup and to `track.sh copy`/`paste`/`delete`/`clear`/`pin`/`unpin` for actions — no QML-side
+clipboard or database logic beyond that. Keyboard navigation runs through the shell's `PanelKeyCatcher`, which tracks
 a `selectedIndex` and keeps it in view by walking the selected delegate's position via
 `Repeater.itemAt()` (a plain `Column` + `Repeater` list has no `ListView.positionViewAtIndex`).
 

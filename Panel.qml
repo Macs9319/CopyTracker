@@ -42,8 +42,19 @@ Panel {
     deleteProc.running = true
   }
 
+  function setPinned(id, pinned) {
+    pinProc.command = ["bash", root.scriptPath, pinned ? "pin" : "unpin", String(id)]
+    pinProc.running = true
+  }
+
+  function togglePinSelected() {
+    if (root.selectedIndex < 0 || root.selectedIndex >= root.entries.length) return
+    var entry = root.entries[root.selectedIndex]
+    root.setPinned(entry.id, !entry.pinned)
+  }
+
   function requestClear() {
-    if (root.entries.length === 0) return
+    if (!root.entries.some(function(e) { return !e.pinned })) return
     root.clearConfirmOpen = true
   }
 
@@ -57,8 +68,13 @@ Panel {
   }
 
   function previewFor(entry) {
-    if (entry.type === "image") return "🖼  Image (" + (entry.mime || "image") + ")"
-    return String(entry.content || "").replace(/\s+/g, " ").trim()
+    if (entry.type === "image") return "Image (" + (entry.mime || "image") + ")"
+    // Some apps (Google Docs, etc.) put HTML on the text/plain clipboard
+    // target instead of real plain text. Strip tags (before truncating —
+    // truncating first can cut a long data-URI <img> tag off before its
+    // closing '>', leaving a dangling tag the regex can't match) so a
+    // stray <img> can't get interpreted as rich content by Text below.
+    return String(entry.content || "").replace(/<[^>]*>/g, " ").slice(0, 500).replace(/\s+/g, " ").trim()
   }
 
   function moveSelection(dy) {
@@ -107,6 +123,7 @@ Panel {
 
   Process { id: deleteProc; onExited: root.refresh() }
   Process { id: clearProc; command: ["bash", root.scriptPath, "clear"]; onExited: root.refresh() }
+  Process { id: pinProc; onExited: root.refresh() }
 
   Process {
     id: listProc
@@ -194,12 +211,13 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) { if (dy !== 0) root.moveSelection(dy) }
       onActivateRequested: root.activateSelected()
+      onTextKey: function(t) { if (t === "p" || t === "P") root.togglePinSelected() }
 
       ConfirmDialog {
         anchors.fill: parent
         opened: root.clearConfirmOpen
         z: 10
-        message: "Delete entire copy history?"
+        message: "Delete all unpinned copy history?"
         confirmText: "Delete"
         background: Color.popups.background
         foreground: root.bar.foreground
@@ -246,7 +264,7 @@ Panel {
               id: clearBtn
               text: "Clear All"
               bordered: true
-              enabled: root.entries.length > 0
+              enabled: root.entries.some(function(e) { return !e.pinned })
               foreground: root.bar.foreground
               fontFamily: root.bar.fontFamily
               horizontalPadding: Style.spacing.controlPaddingX
@@ -341,7 +359,13 @@ Panel {
                 Rectangle {
                   anchors.fill: parent
                   radius: Style.cornerRadius
-                  color: (rowHover.containsMouse || rowItem.index === root.selectedIndex) ? Style.hoverFillFor(root.bar.foreground, Color.accent) : "transparent"
+                  color: {
+                    if (rowHover.containsMouse || rowItem.index === root.selectedIndex)
+                      return Style.hoverFillFor(root.bar.foreground, Color.accent)
+                    if (rowItem.modelData.pinned)
+                      return Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.2)
+                    return "transparent"
+                  }
                 }
 
                 MouseArea {
@@ -353,29 +377,59 @@ Panel {
                   onClicked: { root.pasteEntry(rowItem.modelData.id); root.close() }
                 }
 
-                Column {
+                Item {
+                  id: infoArea
                   anchors.left: parent.left
                   anchors.leftMargin: Style.space(10)
                   anchors.right: actions.left
                   anchors.rightMargin: Style.space(10)
                   anchors.verticalCenter: parent.verticalCenter
-                  spacing: Style.space(2)
+                  height: Style.space(36)
 
-                  Text {
-                    width: parent.width
-                    text: root.previewFor(rowItem.modelData)
-                    color: root.bar.foreground
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: Style.font.body
-                    elide: Text.ElideRight
-                    wrapMode: Text.NoWrap
+                  Item {
+                    id: thumb
+                    visible: rowItem.modelData.type === "image"
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: visible ? Style.space(36) : 0
+                    height: Style.space(36)
+                    clip: true
+
+                    Image {
+                      anchors.fill: parent
+                      fillMode: Image.PreserveAspectCrop
+                      asynchronous: true
+                      cache: true
+                      sourceSize.width: 96
+                      sourceSize.height: 96
+                      source: thumb.visible ? "file://" + rowItem.modelData.content : ""
+                    }
                   }
 
-                  Text {
-                    text: rowItem.modelData.created_at || ""
-                    color: Qt.darker(root.bar.foreground, 1.5)
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: Style.font.caption
+                  Column {
+                    anchors.left: thumb.visible ? thumb.right : parent.left
+                    anchors.leftMargin: thumb.visible ? Style.space(8) : 0
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(2)
+
+                    Text {
+                      width: parent.width
+                      text: root.previewFor(rowItem.modelData)
+                      textFormat: Text.PlainText
+                      color: root.bar.foreground
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.body
+                      elide: Text.ElideRight
+                      wrapMode: Text.NoWrap
+                    }
+
+                    Text {
+                      text: rowItem.modelData.created_at || ""
+                      color: Qt.darker(root.bar.foreground, 1.5)
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
                   }
                 }
 
@@ -384,6 +438,16 @@ Panel {
                   anchors.right: parent.right
                   anchors.verticalCenter: parent.verticalCenter
                   spacing: Style.space(2)
+
+                  Button {
+                    text: rowItem.modelData.pinned ? "★" : "☆"
+                    tooltipText: rowItem.modelData.pinned ? "Unpin" : "Pin"
+                    foreground: rowItem.modelData.pinned ? Color.accent : root.bar.foreground
+                    fontFamily: root.bar.fontFamily
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(4)
+                    onClicked: root.setPinned(rowItem.modelData.id, !rowItem.modelData.pinned)
+                  }
 
                   Button {
                     text: "↺"

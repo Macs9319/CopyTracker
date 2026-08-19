@@ -17,9 +17,14 @@ CREATE TABLE IF NOT EXISTS clips (
   type TEXT NOT NULL,
   content TEXT NOT NULL,
   mime TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 SQL
+  # Migrate databases created before the pinned column existed.
+  if ! sqlite3 "$DB" "PRAGMA table_info(clips);" | grep -q '|pinned|'; then
+    sqlite3 "$DB" "ALTER TABLE clips ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;"
+  fi
 }
 
 # Skip anything flagged as a password-manager copy, same convention the
@@ -49,9 +54,11 @@ like_escape() {
   sql_escape "$s"
 }
 
+# Pinned entries are exempt from the cap: only the oldest unpinned entries
+# beyond MAX_ENTRIES are trimmed, however many pinned entries exist.
 trim_table() {
-  mapfile -t stale_images < <(sqlite3 "$DB" "SELECT DISTINCT content FROM clips WHERE type='image' AND id NOT IN (SELECT id FROM clips ORDER BY id DESC LIMIT $MAX_ENTRIES);")
-  sqlite3 "$DB" "DELETE FROM clips WHERE id NOT IN (SELECT id FROM clips ORDER BY id DESC LIMIT $MAX_ENTRIES);"
+  mapfile -t stale_images < <(sqlite3 "$DB" "SELECT DISTINCT content FROM clips WHERE type='image' AND pinned=0 AND id NOT IN (SELECT id FROM clips WHERE pinned=0 ORDER BY id DESC LIMIT $MAX_ENTRIES);")
+  sqlite3 "$DB" "DELETE FROM clips WHERE pinned=0 AND id NOT IN (SELECT id FROM clips WHERE pinned=0 ORDER BY id DESC LIMIT $MAX_ENTRIES);"
   prune_images "${stale_images[@]}"
 }
 
@@ -65,6 +72,21 @@ prune_images() {
     still_used=$(sqlite3 "$DB" "SELECT COUNT(*) FROM clips WHERE type='image' AND content='$(sql_escape "$f")';")
     [[ "$still_used" -eq 0 ]] && rm -f "$f"
   done
+}
+
+# Inserts a fresh row for (type, content), carrying over any existing
+# pinned flag and removing prior row(s) with identical content first —
+# so re-copying something already in the history bumps it to the top
+# instead of piling up a duplicate. mime may be empty for text entries.
+upsert_clip() {
+  local type="$1" content="$2" mime="$3" pinned
+  pinned=$(sqlite3 "$DB" "SELECT COALESCE(MAX(pinned), 0) FROM clips WHERE type='$type' AND content='$content';")
+  sqlite3 "$DB" "DELETE FROM clips WHERE type='$type' AND content='$content';"
+  if [[ -n "$mime" ]]; then
+    sqlite3 "$DB" "INSERT INTO clips (type, content, mime, pinned) VALUES ('$type', '$content', '$mime', $pinned);"
+  else
+    sqlite3 "$DB" "INSERT INTO clips (type, content, pinned) VALUES ('$type', '$content', $pinned);"
+  fi
 }
 
 require_int() {
@@ -104,7 +126,7 @@ insert-text)
   [[ "$text" == "$last" ]] && exit 0
 
   escaped=$(sql_escape "$text")
-  printf "INSERT INTO clips (type, content) VALUES ('text', '%s');" "$escaped" | sqlite3 "$DB"
+  upsert_clip "text" "$escaped" ""
   trim_table
   echo changed
   ;;
@@ -135,7 +157,7 @@ insert-image)
 
   file_escaped=$(sql_escape "$file")
   mime_escaped=$(sql_escape "$mime")
-  printf "INSERT INTO clips (type, content, mime) VALUES ('image', '%s', '%s');" "$file_escaped" "$mime_escaped" | sqlite3 "$DB"
+  upsert_clip "image" "$file_escaped" "$mime_escaped"
   trim_table
   echo changed
   ;;
@@ -146,9 +168,9 @@ list)
   query="${2:-}"
   if [[ -n "$query" ]]; then
     escaped=$(like_escape "$query")
-    sqlite3 -json "$DB" "SELECT id, type, content, mime, created_at FROM clips WHERE content LIKE '%$escaped%' ESCAPE '\' ORDER BY id DESC LIMIT $limit;"
+    sqlite3 -json "$DB" "SELECT id, type, content, mime, pinned, created_at FROM clips WHERE content LIKE '%$escaped%' ESCAPE '\' ORDER BY pinned DESC, id DESC LIMIT $limit;"
   else
-    sqlite3 -json "$DB" "SELECT id, type, content, mime, created_at FROM clips ORDER BY id DESC LIMIT $limit;"
+    sqlite3 -json "$DB" "SELECT id, type, content, mime, pinned, created_at FROM clips ORDER BY pinned DESC, id DESC LIMIT $limit;"
   fi
   ;;
 
@@ -167,9 +189,21 @@ delete)
   ;;
 
 clear)
-  mapfile -t all_images < <(sqlite3 "$DB" "SELECT DISTINCT content FROM clips WHERE type='image';")
-  sqlite3 "$DB" "DELETE FROM clips;"
+  mapfile -t all_images < <(sqlite3 "$DB" "SELECT DISTINCT content FROM clips WHERE type='image' AND pinned=0;")
+  sqlite3 "$DB" "DELETE FROM clips WHERE pinned=0;"
   prune_images "${all_images[@]}"
+  ;;
+
+pin)
+  id="${1:?id required}"
+  require_int "$id"
+  sqlite3 "$DB" "UPDATE clips SET pinned=1 WHERE id=$id;"
+  ;;
+
+unpin)
+  id="${1:?id required}"
+  require_int "$id"
+  sqlite3 "$DB" "UPDATE clips SET pinned=0 WHERE id=$id;"
   ;;
 
 copy)
@@ -192,7 +226,7 @@ paste)
   ;;
 
 *)
-  echo "usage: track.sh {insert-text|insert-image <mime>|list [limit] [query]|count|delete <id>|clear|copy <id>|paste <id>}" >&2
+  echo "usage: track.sh {insert-text|insert-image <mime>|list [limit] [query]|count|delete <id>|clear|pin <id>|unpin <id>|copy <id>|paste <id>}" >&2
   exit 1
   ;;
 esac

@@ -2,6 +2,23 @@
 
 All notable changes to Copy Tracker are documented here.
 
+## [1.3.0]
+
+### Added
+- Pin entries (☆/★ button, or `p` on the selected entry) to keep them at the
+  top of the list, exempt from "Clear All" and the 1000-entry cap
+- Thumbnail previews for image entries in the history list
+- Copying something already in the history now bumps it to the top instead
+  of adding a duplicate row
+
+### Fixed
+- Deleting an entry (individually, via Clear All, or by aging out past the
+  1000-entry cap) now also removes its backing image file, instead of
+  leaving it behind permanently
+- Clipboard content that's actually HTML (e.g. copied from Google Docs) no
+  longer risks rendering an embedded `<img>` as an oversized inline image in
+  the history list — its tags are stripped before display
+
 ## [1.2.0]
 
 ### Changed
