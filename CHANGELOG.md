@@ -2,6 +2,33 @@
 
 All notable changes to Copy Tracker are documented here.
 
+## [1.4.0]
+
+### Added
+- Image copies are tracked regardless of format (JPEG, WebP, GIF, ...)
+  instead of only PNG — the real MIME type is detected from content
+- Copy an entry to the clipboard without pasting it or closing the panel
+  (the ⧉ button, or `c` on the selected entry)
+- A ✕ button in the search box to clear the query
+- `tests/track_test.sh`, a small test suite covering SQL-escaping/injection
+  safety and the new caps below, run in CI on every push and PR
+
+### Changed
+- Pinned entries are no longer unbounded — once more than 200 are pinned,
+  the oldest excess ones fall back to unpinned instead of being kept
+  forever
+- A single copied text entry is capped at 100k characters (truncated with
+  a marker) instead of being stored in full, bounding how much one huge
+  paste can bloat the database
+- SQLite now runs in WAL mode with a busy timeout, so the background
+  watchers and panel actions no longer risk failing on lock contention
+  when they hit the database at the same time
+
+### Fixed
+- A search query containing HTML-like text (e.g. `<img src=...>`) could be
+  auto-detected as rich text and load a remote resource; the empty-state
+  text is now always rendered as plain text
+
 ## [1.3.0]
 
 ### Added

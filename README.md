@@ -1,5 +1,7 @@
 # Copy Tracker
 
+[![Tests](https://github.com/Macs9319/CopyTracker/actions/workflows/test.yml/badge.svg)](https://github.com/Macs9319/CopyTracker/actions/workflows/test.yml)
+
 A clipboard history plugin for the [Omarchy](https://omarchy.org/) shell bar. Every copy
 action — text or image — is logged as a row in a local SQLite database as it happens. Click
 the bar icon to browse the history, search it, pin the entries you don't want to lose, and pick
@@ -40,9 +42,11 @@ Click the bar icon to open the history panel:
 | Action | Effect |
 |---|---|
 | Type in the search box | Filter entries whose content contains the text |
+| Click the search box's ✕ | Clear the search |
 | ↓ / ↑ (or j / k) | Move the selection through the list, auto-scrolling to keep it in view |
 | Enter or Space | Paste the selected entry into whatever's behind the panel, and close it |
 | Click anywhere on an entry (or its ↺) | Same — copy that entry to the clipboard, paste it, and close the panel |
+| Click an entry's ⧉ (or press c) | Copy that entry to the clipboard without pasting or closing the panel |
 | Click an entry's ☆/★ (or press p) | Pin/unpin that entry |
 | Click an entry's ✕ | Delete that entry |
 | Esc | Close the panel |

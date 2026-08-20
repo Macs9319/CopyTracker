@@ -37,6 +37,17 @@ Panel {
     Quickshell.execDetached(["bash", root.scriptPath, "paste", String(id)])
   }
 
+  // Puts the entry on the clipboard without pasting or closing the panel,
+  // for grabbing something to paste manually (or grabbing several in a row).
+  function copyEntry(id) {
+    Quickshell.execDetached(["bash", root.scriptPath, "copy", String(id)])
+  }
+
+  function copySelected() {
+    if (root.selectedIndex < 0 || root.selectedIndex >= root.entries.length) return
+    root.copyEntry(root.entries[root.selectedIndex].id)
+  }
+
   function deleteEntry(id) {
     deleteProc.command = ["bash", root.scriptPath, "delete", String(id)]
     deleteProc.running = true
@@ -211,7 +222,10 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) { if (dy !== 0) root.moveSelection(dy) }
       onActivateRequested: root.activateSelected()
-      onTextKey: function(t) { if (t === "p" || t === "P") root.togglePinSelected() }
+      onTextKey: function(t) {
+        if (t === "p" || t === "P") root.togglePinSelected()
+        else if (t === "c" || t === "C") root.copySelected()
+      }
 
       ConfirmDialog {
         anchors.fill: parent
@@ -294,7 +308,10 @@ Panel {
 
             TextInput {
               id: searchInput
-              anchors.fill: parent
+              anchors.top: parent.top
+              anchors.bottom: parent.bottom
+              anchors.left: parent.left
+              anchors.right: clearSearchBtn.left
               anchors.margins: Style.space(8)
               verticalAlignment: TextInput.AlignVCenter
               clip: true
@@ -316,6 +333,21 @@ Panel {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
               }
+            }
+
+            Button {
+              id: clearSearchBtn
+              visible: searchInput.text.length > 0
+              text: "✕"
+              tooltipText: "Clear search"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+              horizontalPadding: Style.space(4)
+              verticalPadding: Style.space(2)
+              anchors.right: parent.right
+              anchors.rightMargin: Style.space(4)
+              anchors.verticalCenter: parent.verticalCenter
+              onClicked: { searchInput.text = ""; searchInput.forceActiveFocus() }
             }
 
             Timer {
@@ -458,6 +490,16 @@ Panel {
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(4)
                     onClicked: { root.pasteEntry(rowItem.modelData.id); root.close() }
+                  }
+
+                  Button {
+                    text: "⧉"
+                    tooltipText: "Copy (without pasting)"
+                    foreground: root.bar.foreground
+                    fontFamily: root.bar.fontFamily
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(4)
+                    onClicked: root.copyEntry(rowItem.modelData.id)
                   }
 
                   Button {
