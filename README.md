@@ -110,6 +110,15 @@ clipboard or database logic beyond that. Keyboard navigation runs through the sh
 a `selectedIndex` and keeps it in view by walking the selected delegate's position via
 `Repeater.itemAt()` (a plain `Column` + `Repeater` list has no `ListView.positionViewAtIndex`).
 
+## Development
+
+`tests/track_test.sh` covers `track.sh`'s SQL-escaping and row-capping logic (no external test
+framework, runs against a throwaway database):
+
+```bash
+./tests/track_test.sh
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

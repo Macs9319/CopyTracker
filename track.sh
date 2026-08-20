@@ -6,7 +6,11 @@ set -euo pipefail
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy"
 IMAGE_DIR="$STATE_DIR/copytracker-images"
 DB="$STATE_DIR/copytracker.db"
-MAX_ENTRIES=1000
+# Overridable via env (mainly so tests can exercise the caps without writing
+# thousands of rows).
+: "${MAX_ENTRIES:=1000}"
+: "${MAX_PINNED:=200}"
+: "${MAX_TEXT_CHARS:=100000}"
 
 mkdir -p "$STATE_DIR" "$IMAGE_DIR"
 
@@ -73,9 +77,14 @@ like_escape() {
   sql_escape "$s"
 }
 
-# Pinned entries are exempt from the cap: only the oldest unpinned entries
-# beyond MAX_ENTRIES are trimmed, however many pinned entries exist.
+# Pinned entries are exempt from the MAX_ENTRIES cap, but not unbounded:
+# beyond MAX_PINNED, the oldest excess ones fall back to unpinned instead of
+# being deleted outright, so they just become subject to the normal trim
+# below rather than disappearing immediately. Only the oldest unpinned
+# entries beyond MAX_ENTRIES are actually deleted.
 trim_table() {
+  db "UPDATE clips SET pinned=0 WHERE pinned=1 AND id NOT IN (SELECT id FROM clips WHERE pinned=1 ORDER BY id DESC LIMIT $MAX_PINNED);"
+
   mapfile -t stale_images < <(db "SELECT DISTINCT content FROM clips WHERE type='image' AND pinned=0 AND id NOT IN (SELECT id FROM clips WHERE pinned=0 ORDER BY id DESC LIMIT $MAX_ENTRIES);")
   db "DELETE FROM clips WHERE pinned=0 AND id NOT IN (SELECT id FROM clips WHERE pinned=0 ORDER BY id DESC LIMIT $MAX_ENTRIES);"
   prune_images "${stale_images[@]}"
@@ -129,6 +138,10 @@ copy_entry() {
   fi
 }
 
+# Guarded so tests/track_test.sh can source this file for its functions
+# (sql_escape, like_escape, trim_table, ...) without running the CLI dispatch.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+
 init_db
 
 cmd="${1:-}"
@@ -140,6 +153,12 @@ insert-text)
   text=$(cat)
   text="${text%$'\n'}"
   [[ -z "$text" ]] && exit 0
+
+  # Bound how much a single copy can bloat the database — huge pastes (a log
+  # file, a giant diff) get truncated rather than stored in full.
+  if (( ${#text} > MAX_TEXT_CHARS )); then
+    text="${text:0:MAX_TEXT_CHARS}"$'\n[truncated]'
+  fi
 
   last=$(db "SELECT content FROM clips WHERE type='text' ORDER BY id DESC LIMIT 1;")
   [[ "$text" == "$last" ]] && exit 0
@@ -261,3 +280,5 @@ paste)
   exit 1
   ;;
 esac
+
+fi
