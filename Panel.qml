@@ -164,7 +164,7 @@ Panel {
 
   Process {
     id: imageWatchProc
-    command: ["setpriv", "--pdeathsig", "TERM", "wl-paste", "--type", "image/png", "--watch", "bash", root.scriptPath, "insert-image", "image/png"]
+    command: ["setpriv", "--pdeathsig", "TERM", "wl-paste", "--type", "image", "--watch", "bash", root.scriptPath, "insert-image"]
     onExited: watchRestartTimer.restart()
     stdout: SplitParser {
       onRead: function(data) { root.refresh() }

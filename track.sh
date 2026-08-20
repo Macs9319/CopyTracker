@@ -10,8 +10,23 @@ MAX_ENTRIES=1000
 
 mkdir -p "$STATE_DIR" "$IMAGE_DIR"
 
+# The busy timeout is per-connection (unlike journal_mode, it isn't persisted
+# in the database file), so every sqlite3 invocation needs it set explicitly —
+# the text/image watchers and panel actions all hit this same file and would
+# otherwise fail immediately instead of waiting out a momentary lock. Using
+# the `.timeout` dot-command rather than `PRAGMA busy_timeout=`, since the
+# PRAGMA form prints its own result row and would corrupt every query's
+# output (plain and -json alike).
+db() {
+  sqlite3 -cmd ".timeout 5000" "$DB" "$@"
+}
+
+dbjson() {
+  sqlite3 -cmd ".timeout 5000" -json "$DB" "$@"
+}
+
 init_db() {
-  sqlite3 "$DB" <<'SQL'
+  db <<'SQL'
 CREATE TABLE IF NOT EXISTS clips (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   type TEXT NOT NULL,
@@ -21,9 +36,13 @@ CREATE TABLE IF NOT EXISTS clips (
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 SQL
+  # WAL lets the watcher processes and panel actions read/write concurrently
+  # instead of blocking on a single file lock. Persisted in the DB file, so
+  # this only needs to run once, but it's idempotent.
+  db "PRAGMA journal_mode=WAL;" >/dev/null
   # Migrate databases created before the pinned column existed.
-  if ! sqlite3 "$DB" "PRAGMA table_info(clips);" | grep -q '|pinned|'; then
-    sqlite3 "$DB" "ALTER TABLE clips ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;"
+  if ! db "PRAGMA table_info(clips);" | grep -q '|pinned|'; then
+    db "ALTER TABLE clips ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;"
   fi
 }
 
@@ -57,8 +76,8 @@ like_escape() {
 # Pinned entries are exempt from the cap: only the oldest unpinned entries
 # beyond MAX_ENTRIES are trimmed, however many pinned entries exist.
 trim_table() {
-  mapfile -t stale_images < <(sqlite3 "$DB" "SELECT DISTINCT content FROM clips WHERE type='image' AND pinned=0 AND id NOT IN (SELECT id FROM clips WHERE pinned=0 ORDER BY id DESC LIMIT $MAX_ENTRIES);")
-  sqlite3 "$DB" "DELETE FROM clips WHERE pinned=0 AND id NOT IN (SELECT id FROM clips WHERE pinned=0 ORDER BY id DESC LIMIT $MAX_ENTRIES);"
+  mapfile -t stale_images < <(db "SELECT DISTINCT content FROM clips WHERE type='image' AND pinned=0 AND id NOT IN (SELECT id FROM clips WHERE pinned=0 ORDER BY id DESC LIMIT $MAX_ENTRIES);")
+  db "DELETE FROM clips WHERE pinned=0 AND id NOT IN (SELECT id FROM clips WHERE pinned=0 ORDER BY id DESC LIMIT $MAX_ENTRIES);"
   prune_images "${stale_images[@]}"
 }
 
@@ -69,7 +88,7 @@ prune_images() {
   local f still_used
   for f in "$@"; do
     [[ -z "$f" ]] && continue
-    still_used=$(sqlite3 "$DB" "SELECT COUNT(*) FROM clips WHERE type='image' AND content='$(sql_escape "$f")';")
+    still_used=$(db "SELECT COUNT(*) FROM clips WHERE type='image' AND content='$(sql_escape "$f")';")
     [[ "$still_used" -eq 0 ]] && rm -f "$f"
   done
 }
@@ -80,12 +99,12 @@ prune_images() {
 # instead of piling up a duplicate. mime may be empty for text entries.
 upsert_clip() {
   local type="$1" content="$2" mime="$3" pinned
-  pinned=$(sqlite3 "$DB" "SELECT COALESCE(MAX(pinned), 0) FROM clips WHERE type='$type' AND content='$content';")
-  sqlite3 "$DB" "DELETE FROM clips WHERE type='$type' AND content='$content';"
+  pinned=$(db "SELECT COALESCE(MAX(pinned), 0) FROM clips WHERE type='$type' AND content='$content';")
+  db "DELETE FROM clips WHERE type='$type' AND content='$content';"
   if [[ -n "$mime" ]]; then
-    sqlite3 "$DB" "INSERT INTO clips (type, content, mime, pinned) VALUES ('$type', '$content', '$mime', $pinned);"
+    db "INSERT INTO clips (type, content, mime, pinned) VALUES ('$type', '$content', '$mime', $pinned);"
   else
-    sqlite3 "$DB" "INSERT INTO clips (type, content, pinned) VALUES ('$type', '$content', $pinned);"
+    db "INSERT INTO clips (type, content, pinned) VALUES ('$type', '$content', $pinned);"
   fi
 }
 
@@ -97,7 +116,7 @@ require_int() {
 # touching the clipboard) if the id doesn't exist.
 copy_entry() {
   local id="$1" row type content mime
-  row=$(sqlite3 -json "$DB" "SELECT type, content, mime FROM clips WHERE id=$id LIMIT 1;")
+  row=$(dbjson "SELECT type, content, mime FROM clips WHERE id=$id LIMIT 1;")
   type=$(jq -r '.[0].type // empty' <<<"$row")
   content=$(jq -r '.[0].content // empty' <<<"$row")
   mime=$(jq -r '.[0].mime // empty' <<<"$row")
@@ -122,7 +141,7 @@ insert-text)
   text="${text%$'\n'}"
   [[ -z "$text" ]] && exit 0
 
-  last=$(sqlite3 "$DB" "SELECT content FROM clips WHERE type='text' ORDER BY id DESC LIMIT 1;")
+  last=$(db "SELECT content FROM clips WHERE type='text' ORDER BY id DESC LIMIT 1;")
   [[ "$text" == "$last" ]] && exit 0
 
   escaped=$(sql_escape "$text")
@@ -133,9 +152,6 @@ insert-text)
 
 insert-image)
   is_sensitive && exit 0
-  mime="${1:-image/png}"
-  ext="${mime#image/}"
-  [[ "$ext" == "jpeg" ]] && ext="jpg"
 
   tmp=$(mktemp --tmpdir="$IMAGE_DIR" clip.XXXXXX)
   cat >"$tmp"
@@ -143,6 +159,21 @@ insert-image)
     rm -f "$tmp"
     exit 0
   fi
+
+  # Detect the real MIME type from content rather than trusting the caller —
+  # the watcher uses `wl-paste --type image` (whatever image format the app
+  # actually offers), so this may be png, jpeg, webp, gif, etc.
+  mime=$(file --brief --mime-type "$tmp" 2>/dev/null || echo "")
+  case "$mime" in
+    image/*) ;;
+    *) mime="image/png" ;;
+  esac
+  ext="${mime#image/}"
+  case "$ext" in
+    jpeg) ext="jpg" ;;
+    svg+xml) ext="svg" ;;
+    x-icon) ext="ico" ;;
+  esac
 
   hash=$(sha256sum "$tmp" | awk '{print $1}')
   file="$IMAGE_DIR/$hash.$ext"
@@ -152,7 +183,7 @@ insert-image)
     mv "$tmp" "$file"
   fi
 
-  last=$(sqlite3 "$DB" "SELECT content FROM clips WHERE type='image' ORDER BY id DESC LIMIT 1;")
+  last=$(db "SELECT content FROM clips WHERE type='image' ORDER BY id DESC LIMIT 1;")
   [[ "$file" == "$last" ]] && exit 0
 
   file_escaped=$(sql_escape "$file")
@@ -168,42 +199,42 @@ list)
   query="${2:-}"
   if [[ -n "$query" ]]; then
     escaped=$(like_escape "$query")
-    sqlite3 -json "$DB" "SELECT id, type, content, mime, pinned, created_at FROM clips WHERE content LIKE '%$escaped%' ESCAPE '\' ORDER BY pinned DESC, id DESC LIMIT $limit;"
+    dbjson "SELECT id, type, content, mime, pinned, created_at FROM clips WHERE content LIKE '%$escaped%' ESCAPE '\' ORDER BY pinned DESC, id DESC LIMIT $limit;"
   else
-    sqlite3 -json "$DB" "SELECT id, type, content, mime, pinned, created_at FROM clips ORDER BY pinned DESC, id DESC LIMIT $limit;"
+    dbjson "SELECT id, type, content, mime, pinned, created_at FROM clips ORDER BY pinned DESC, id DESC LIMIT $limit;"
   fi
   ;;
 
 count)
-  sqlite3 "$DB" "SELECT COUNT(*) FROM clips;"
+  db "SELECT COUNT(*) FROM clips;"
   ;;
 
 delete)
   id="${1:?id required}"
   require_int "$id"
-  row=$(sqlite3 -json "$DB" "SELECT type, content FROM clips WHERE id=$id LIMIT 1;")
-  sqlite3 "$DB" "DELETE FROM clips WHERE id=$id;"
+  row=$(dbjson "SELECT type, content FROM clips WHERE id=$id LIMIT 1;")
+  db "DELETE FROM clips WHERE id=$id;"
   if [[ "$(jq -r '.[0].type // empty' <<<"$row")" == "image" ]]; then
     prune_images "$(jq -r '.[0].content // empty' <<<"$row")"
   fi
   ;;
 
 clear)
-  mapfile -t all_images < <(sqlite3 "$DB" "SELECT DISTINCT content FROM clips WHERE type='image' AND pinned=0;")
-  sqlite3 "$DB" "DELETE FROM clips WHERE pinned=0;"
+  mapfile -t all_images < <(db "SELECT DISTINCT content FROM clips WHERE type='image' AND pinned=0;")
+  db "DELETE FROM clips WHERE pinned=0;"
   prune_images "${all_images[@]}"
   ;;
 
 pin)
   id="${1:?id required}"
   require_int "$id"
-  sqlite3 "$DB" "UPDATE clips SET pinned=1 WHERE id=$id;"
+  db "UPDATE clips SET pinned=1 WHERE id=$id;"
   ;;
 
 unpin)
   id="${1:?id required}"
   require_int "$id"
-  sqlite3 "$DB" "UPDATE clips SET pinned=0 WHERE id=$id;"
+  db "UPDATE clips SET pinned=0 WHERE id=$id;"
   ;;
 
 copy)
@@ -226,7 +257,7 @@ paste)
   ;;
 
 *)
-  echo "usage: track.sh {insert-text|insert-image <mime>|list [limit] [query]|count|delete <id>|clear|pin <id>|unpin <id>|copy <id>|paste <id>}" >&2
+  echo "usage: track.sh {insert-text|insert-image|list [limit] [query]|count|delete <id>|clear|pin <id>|unpin <id>|copy <id>|paste <id>}" >&2
   exit 1
   ;;
 esac
